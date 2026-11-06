@@ -99,6 +99,17 @@ py tools\fm1_sample_upload.py --list
 
 ## Credits
 
+AETHER FM-1 is an independent project derived from GR!MM.
+It preserves the original code, copyright notices and third-party
+licences. Current AETHER-specific changes include branding and
+firmware version identification.
+
+AETHER is not affiliated with or endorsed by GR!MM, Hügelton
+Instruments, M-VAVE or the original hardware manufacturers.
+
+
+
+
 GR!MM stands on the shoulders of other people's open work. Full details and licence texts are in [LICENSING.md](LICENSING.md) and [LICENSES/](LICENSES/).
 
 - **[Felucca](https://github.com/hugelton/Felucca)** by Leo Kuroshita / Hügelton Instruments (GPL-3.0): the platform, and the ANALOG, FM6, GRAIN, HALL, formant, tonewheel, physical-modelling and phase-distortion engines GR!MM builds on
