@@ -2045,7 +2045,7 @@ static void bs_draw(uint32_t e)
             ui_rect(x, y, 3, 3, s == 2u ? UI_L : s == 1u || i % 3u == 0u ? UI_M : UI_D);
     }
 }
-#define BOOT_LINE "FM-1 / DEATHDREAM / V" APP_VER
+#define BOOT_LINE "AETHER FM-1 / V" APP_VER
 static const char *bt_note;                     /* the boot screen's last line, if not BOOT_LINE ("INSTALLING SAMPLES") */
 static int32_t bt_len(uint32_t x) { return DRIP[x] * (int32_t)bt_d / (int32_t)UI_BOOT_MS; }   /* a drip's cells now */
 static void ui_boot_draw(void)                  /* Boot: the stars, the eye, the bats, GR!MM, the drips */
@@ -2057,7 +2057,7 @@ static void ui_boot_draw(void)                  /* Boot: the stars, the eye, the
     ui_eye(80 + ey.jx, 48 + ey.jy, ey.k, ey.dx, ey.dy);
     ui_eye_tiny = 0;
     bat_draw(bt_e);
-    ui_text(120 - 12 * 5, 100, APP_NAME, 3, UI_L);
+    ui_text(120 - 12 * ui_len(APP_NAME), 100, APP_NAME, 3, UI_L);
     for (y = 0; y < 10; y++)
         for (x = 0; x < 30; x++)
             if (!y || y <= bt_len((uint32_t)x)) ui_rect(60 + x * 4, 128 + y * 4, 4, 4, y ? ui_acc : UI_M);
