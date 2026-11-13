@@ -47,35 +47,37 @@
 #define LOCK_PK 288u                            /* a track's step locks: 64 x the four values, 64 x 4 bits which */
 #define SLOT_LEN(tn, sq, lk) (4u + NT * ((tn) + (sq) + (lk)))   /* a slot: [0] used, its tracks, sequences, locks */
 #define SONG_PK 20u                             /* the song: its chain (16), MODE, the mutes and solos, 2 spare */
-#define FX2_PK 8u                               /* (V2, version 8) MASTER's four, DRIVE's four */
-#define WORK_LEN(tn, sg, sq, lk, fm, fx) (NT * ((tn) + (sq) + (lk)) + 16u + 4u + (sg) + (fm) + (fx))   /* the working
-                                                 * project: tracks, effects, tempo, slot, .., sequences, locks, the
-                                                 * song, the FM patches, MASTER and DRIVE (an older version's sizes: sg
-                                                 * 0 before the song, lk 0 before locks, fm 0 before the FM patches, fx
-                                                 * 0 before V2) */
+#define FX2_PK 8u
+#define DRONE_OLD (NT * 4u)
+#define DRONE_ALL (NT * 5u)
+#define WORK_LEN(tn, sg, sq, lk, fm, fx, dr) \
+    (NT * ((tn) + (sq) + (lk)) + 16u + 4u + (sg) + (fm) + (fx) + (dr))
 #define SLOT_PK SLOT_LEN(TRK_PK, SEQ_PK, LOCK_PK)
-#define SLOT_ALL (SLOT_PK + FM_ALL)             /* a slot in RAM: SLOT_PK, its FM patches after (the stream's tail) */
-#define WORK_PK WORK_LEN(TRK_PK, SONG_PK, SEQ_PK, LOCK_PK, FM_ALL, FX2_PK)
-#define OBJ_HDR 12u                             /* magic, the save count, type, version, length */
-#define OBJ_MAGIC 0x4B4D5247u                   /* "GRMK" */
-#define OBJ_VER 8u
-#define SLS_VER 6u                              /* the slots' stream (its layout as version 6's) */
-#define NOBJV 7u
-static const uint16_t OBJ_VERS[NOBJV][7] = {{8, 52, 20, 260, 288, FM_ALL, FX2_PK}, {7, 52, 20, 260, 288, FM_ALL, 0},
-                                            {6, 52, 20, 260, 288, 0, 0}, {5, 52, 20, 196, 0, 0, 0},
-                                            {4, 52, 0, 196, 0, 0, 0}, {3, 48, 0, 196, 0, 0, 0},
-                                            {2, 44, 0, 196, 0, 0, 0}};   /* the versions loaded, newest first: a
-                                                 * track's, the song's, a sequence's, the locks', the FM patches', MASTER
-                                                 * and DRIVE's size (7, GR!MM 1.0's: before MASTER and DRIVE; 6: before
-                                                 * the FM patches; 5: before chord steps and locks; 4: before the song;
-                                                 * 3: before the LFO; 2: before ARP) */
+#define SLOT_ALL (SLOT_PK + FM_ALL + 20u)
+#define WORK_PK WORK_LEN(TRK_PK, SONG_PK, SEQ_PK, LOCK_PK, FM_ALL, FX2_PK, DRONE_ALL)
+#define OBJ_HDR 12u
+#define OBJ_MAGIC 0x4B4D5247u
+#define OBJ_VER 10u
+#define SLS_VER 6u
+#define NOBJV 9u
+static const uint16_t OBJ_VERS[NOBJV][8] = {
+    {10, 52, 20, 260, 288, FM_ALL, FX2_PK, DRONE_ALL},
+    {9, 52, 20, 260, 288, FM_ALL, FX2_PK, DRONE_OLD},
+    {8, 52, 20, 260, 288, FM_ALL, FX2_PK, 0},
+    {7, 52, 20, 260, 288, FM_ALL, 0, 0},
+    {6, 52, 20, 260, 288, 0, 0, 0},
+    {5, 52, 20, 196, 0, 0, 0, 0},
+    {4, 52, 0, 196, 0, 0, 0, 0},
+    {3, 48, 0, 196, 0, 0, 0, 0},
+    {2, 44, 0, 196, 0, 0, 0, 0}
+};
 #define SLS_MAGIC 0x534C5247u                   /* "GRLS": a sector of the slots' stream */
 #define SLS_P (4096u - OBJ_HDR - 4u)            /* the stream's bytes a sector */
 #define SLS_N 3u                                /* its sectors: 3, 4, 5 */
 enum { OBJ_WORK, OBJ_SLOTS };
 enum { CAT_DRONE, CAT_PAD, CAT_BELL, CAT_ORGAN, CAT_KEYS, CAT_BASS, CAT_TEXTURE, CAT_VOICE, CAT_OTHER, NCAT };
 static const char *const CAT_NAME[NCAT] = {"DRONE", "PAD", "BELL", "ORGAN", "KEYS", "BASS", "TEXTURE", "VOICE", "OTHER"};
-_Static_assert(NENG <= PK_ENG, "a save keeps every source's settings");
+_Static_assert(NENG_STORED <= PK_ENG, "a save keeps every stored engine's settings");
 _Static_assert(SND_N * SND_SIZE <= 4096u && OBJ_HDR + WORK_PK + 4u <= 4096u && 4u * SLOT_ALL <= SLS_N * SLS_P &&
                SAVE_NSECT >= 3u + SLS_N, "the save sectors");
 
@@ -320,7 +322,7 @@ static void snd_pack(uint8_t *r, uint32_t t, uint32_t cat, uint32_t num)   /* tr
     if (e == ENG_VOICE) r[18] = (uint8_t)clamp(trk[t].vty, 0, NVT - 1);   /* (V2: VOICE: its TYPE in the patch's room) */
     if (e == ENG_PHASE) pd_pk(r + 18, t);       /* (V2: PHASE: its LINE 2 and envelopes there) */
     for (k = 0; k < 4u; k++) {
-        r[4 + k] = (uint8_t)clamp(trk[t].p[e][k], 0, 255);
+        r[4 + k] = (uint8_t)clamp(engine_params(t, e)[k], 0, 255);
         r[8 + k] = (uint8_t)clamp(trk[t].env[k], 0, 127);
     }
     r[12] = (uint8_t)((trk[t].latch != 0) | clamp(trk[t].glide, 0, 127) << 1);   /* (V2: GLIDE over LATCH's bit) */
@@ -353,7 +355,7 @@ static void snd_apply(const uint8_t *r, uint32_t t)   /* a sound record into tra
     uint32_t k, e = r[3] < NENG ? r[3] : 0u, la;
     for (k = 0; k < 4u; k++) {                  /* (rc9: within the knobs' ranges: a sound the editor wrote, a broken
                                                  * one, can't put a value past them, nor a filter out of control) */
-        trk[t].p[e][k] = clamp(r[4 + k], 0, ENGINES[e]->max[k]);
+        engine_params(t, e)[k] = clamp(r[4 + k], 0, ENGINES[e]->max[k]);
         trk[t].env[k] = clamp(r[8 + k], 0, 127);
     }
     la = snd_latch_off ? 0u : r[12] & 1u;       /* (V2: SYSTEM 3's ALWAYS OFF: LATCH OFF, whatever the sound's) */
@@ -431,8 +433,8 @@ static uint8_t *pk_track(uint8_t *q, uint32_t t)
     uint32_t e, k;
     for (k = 0; k < TRK_PK; k++) q[k] = 0;
     q[0] = (uint8_t)clamp(trk[t].eng, 0, NENG - 1);
-    for (e = 0; e < NENG; e++)
-        for (k = 0; k < 4u; k++) q[1 + e * 4u + k] = (uint8_t)clamp(trk[t].p[e][k], 0, 255);
+    for (e = 0; e < NENG_STORED; e++)
+        for (k = 0; k < 4u; k++) q[1 + e * 4u + k] = (uint8_t)clamp(engine_params(t, e)[k], 0, 255);
     q[1 + ENG_VOICE * 4u + 1u] = (uint8_t)(clamp(trk[t].p[ENG_VOICE][1], 0, 24) | clamp(trk[t].vty, 0, NVT - 1) << 5);   /*
                                                  * (V2: VOICE's TYPE over its SHIFT, 0..24: 1.0 had 0 there) */
     for (k = 0; k < 4u; k++) q[33 + k] = (uint8_t)clamp(trk[t].env[k], 0, 127);
@@ -498,7 +500,7 @@ static const uint8_t *uk_track(const uint8_t *q0, uint32_t t, int isr, uint32_t 
         trk[t].pd_pe = (int32_t)xb_get(q, &at, 7), trk[t].pd_pe = trk[t].pd_pe >= 64 ? trk[t].pd_pe - 128 : trk[t].pd_pe;
         trk[t].pd_pd = (int32_t)xb_get(q, &at, 7);
     }
-    for (e = 0; e < NENG; e++)                  /* (rc9: every value loaded within its knob's range: a broken save
+    for (e = 0; e < NENG_STORED; e++)                  /* (rc9: every value loaded within its knob's range: a broken save
                                                  * can't put one past it) */
         for (k = 0; k < 4u; k++) trk[t].p[e][k] = clamp(q[1 + e * 4u + k], 0, ENGINES[e]->max[k]);
     trk[t].p[ENG_VOICE][1] = clamp(q[1 + ENG_VOICE * 4u + 1u] & 31u, 0, ENGINES[ENG_VOICE]->max[1]);
@@ -538,7 +540,9 @@ static uint8_t *pk_seq(uint8_t *q, uint32_t t)
     const seq_pat_t *P = &seq[t].pat[0];
     uint32_t k;
     q[0] = (uint8_t)clamp(seq[t].steps, 1, SEQ_N), q[1] = (uint8_t)clamp(seq[t].div, 0, 7);
-    q[2] = (uint8_t)clamp(seq[t].swing, 0, 127), q[3] = (uint8_t)clamp(seq[t].mode, 0, SEQ_NMODE - 1);
+    q[2] = (uint8_t)clamp(seq[t].swing, 0, 127);
+    q[3] = (uint8_t)(clamp(seq[t].mode, 0, SEQ_NMODE - 1) |
+                     ((uint32_t)seq_transpose_pack(seq_track_transpose[t]) << 2));
     for (k = 0; k < SEQ_N; k++) {               /* a step: NOTE 7, CHANCE 7, RATCHET - 1 2, LENGTH - 1 6 bits; its chord */
         uint32_t v = (uint32_t)clamp(P->st[k].note, 0, 127) | (uint32_t)clamp(P->st[k].chance, 0, 100) << 7 |
                      (uint32_t)(clamp(P->st[k].ratchet, 1, 4) - 1) << 14 | (uint32_t)(clamp(P->st[k].len, 1, SEQ_N) - 1) << 16;
@@ -552,7 +556,9 @@ static const uint8_t *uk_seq(const uint8_t *q, uint32_t t, uint32_t sq)   /* (sq
     seq_pat_t *P = &seq[t].pat[0];
     uint32_t k, w = sq == SEQ_PK ? 4u : 3u;
     seq[t].steps = clamp(q[0], 1, SEQ_N), seq[t].div = clamp(q[1], 0, 7);
-    seq[t].swing = clamp(q[2], 0, 127), seq[t].mode = clamp(q[3], 0, SEQ_NMODE - 1);
+    seq[t].swing = clamp(q[2], 0, 127);
+    seq[t].mode = clamp(q[3] & 3u, 0, SEQ_NMODE - 1);
+    seq_track_transpose[t] = seq_transpose_unpack((q[3] >> 2) & 63u);
     for (k = 0; k < SEQ_N; k++) {
         const uint8_t *b = q + 4 + k * w;
         uint32_t v = b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16;
@@ -600,20 +606,27 @@ static void pk_work(uint8_t *q)
     for (k = 0; k < SONG_N; k++)                /* the song: a step a byte (its slot or END, its REPEATS - 1 << 3), */
         q[k] = (uint8_t)(clamp(song_pat[k], 0, SONG_END) | (clamp(song_rep[k], 1, 16) - 1) << 3);
     q[16] = (uint8_t)clamp(song_mode, 0, NSONGMODE - 1);   /* MODE, */
-    q[17] = (uint8_t)((trk_mute & 15u) | (trk_solo & 15u) << 4), q[18] = q[19] = 0;   /* the mutes and solos */
+    q[17] = (uint8_t)((trk_mute & 15u) | (trk_solo & 15u) << 4);
+    q[18] = seq_transpose_to_byte(seq_global_transpose), q[19] = 0;   /* reserved: global transpose */
     for (t = 0; t < NT; t++) pk_fm(q + SONG_PK + t * FM_PK, t);   /* the FM patches */
     q += SONG_PK + FM_ALL;                      /* (V2) MASTER, DRIVE */
     q[0] = (uint8_t)clamp(mf_cut, 0, 127), q[1] = (uint8_t)clamp(mf_res, 0, 127);
     q[2] = (uint8_t)clamp(mf_type, 0, NFTYPE - 1), q[3] = (uint8_t)clamp(mf_pos, 0, NMPOS - 1);
     q[4] = (uint8_t)clamp(dr_amt, 0, 127), q[5] = (uint8_t)clamp(dr_type, 0, NDTYPE - 1);
     q[6] = (uint8_t)clamp(dr_tone, 0, 127), q[7] = (uint8_t)clamp(dr_mix, 0, 127);
+    q += FX2_PK;
+    for (t = 0; t < NT; t++) {
+        for (k = 0; k < 4u; k++)
+            *q++ = (uint8_t)clamp(trk[t].drone[k], 0, 127);
+        *q++ = (uint8_t)clamp(trk[t].drone_mode, 0, 1);
+    }
 }
 enum { UW_GLOBALS = 1, UW_CHAIN = 2 };
 static void uk_work(const uint8_t *q, uint32_t f, const uint16_t *vs)   /* (f: UW_GLOBALS, the effects, tempo, slot,
                                                  * SCALE, MODE, mutes too; UW_CHAIN, the song's chain too; vs: its
                                                  * version's row of OBJ_VERS, the sizes) */
 {
-    uint32_t t, k, tn = vs[1], sg = vs[2], sq = vs[3], lk = vs[4], fm = vs[5], fx = vs[6];
+    uint32_t t, k, tn = vs[1], sg = vs[2], sq = vs[3], lk = vs[4], fm = vs[5], fx = vs[6], dr = vs[7];
     int globals = (f & UW_GLOBALS) != 0;
     for (t = 0; t < NT; t++) q = uk_track(q, t, 0, tn);
     if (globals) {
@@ -634,18 +647,39 @@ static void uk_work(const uint8_t *q, uint32_t f, const uint16_t *vs)   /* (f: U
         dr_amt = fx ? clamp(x[4], 0, 127) : 0, dr_type = fx ? clamp(x[5], 0, NDTYPE - 1) : DT_SOFT;
         dr_tone = fx ? clamp(x[6], 0, 127) : 127, dr_mix = fx ? clamp(x[7], 0, 127) : 127;
     }
-    if (!sg) return;                            /* (saved before the song: as it is) */
+    for (t = 0; t < NT; t++) {
+        trk[t].drone[0] = 64;
+        trk[t].drone[1] = 0;
+        trk[t].drone[2] = 64;
+        trk[t].drone[3] = 64;
+        trk[t].drone_mode = 0;
+    }
+    if (dr >= DRONE_ALL) {
+        const uint8_t *d = q + sg + fm + fx;
+        for (t = 0; t < NT; t++) {
+            for (k = 0; k < 4u; k++)
+                trk[t].drone[k] = clamp(*d++, 0, 127);
+            trk[t].drone_mode = clamp(*d++, 0, 1);
+        }
+    } else if (dr >= DRONE_OLD) {
+        const uint8_t *d = q + sg + fm + fx;
+        for (t = 0; t < NT; t++)
+            for (k = 0; k < 4u; k++)
+                trk[t].drone[k] = clamp(*d++, 0, 127);
+    }
+    if (!sg) { if (globals) seq_global_transpose = 0; return; }
     if (f & UW_CHAIN)
         for (k = 0; k < SONG_N; k++) song_pat[k] = clamp(q[k] & 7u, 0, SONG_END), song_rep[k] = (q[k] >> 3 & 15u) + 1u;
     if (globals) {
         song_mode = clamp(q[16], 0, NSONGMODE - 1);
         trk_mute = q[17] & 15u, trk_solo = q[17] >> 4 & 15u;
+        seq_global_transpose = sg >= 19u ? seq_transpose_from_byte(q[18]) : 0;
     }
 }
 static void pk_slot(uint8_t *q)                 /* the four tracks, their sequences and locks into a slot (used) */
 {
     uint32_t t;
-    q[0] = 1, q[1] = q[2] = q[3] = 0;
+    q[0] = 1, q[1] = seq_transpose_to_byte(seq_global_transpose), q[2] = q[3] = 0;
     q += 4;
     for (t = 0; t < NT; t++) q = pk_track(q, t);
     for (t = 0; t < NT; t++) q = pk_seq(q, t);
@@ -655,6 +689,7 @@ static void pk_slot(uint8_t *q)                 /* the four tracks, their sequen
 static void uk_slot(const uint8_t *q, int isr)
 {
     uint32_t t;
+    seq_global_transpose = seq_transpose_from_byte(q[1]);
     q += 4;
     for (t = 0; t < NT; t++) q = uk_track(q, t, isr, TRK_PK);
     for (t = 0; t < NT; t++) q = uk_seq(q, t, SEQ_PK);
@@ -684,7 +719,7 @@ static const uint8_t *obj_find(uint32_t type, const uint16_t **vs, uint32_t *s_o
     uint32_t v;
     for (v = type == OBJ_SLOTS ? 2u : 0u; v < NOBJV; v++) {
         const uint16_t *r = OBJ_VERS[v];
-        uint32_t len = type == OBJ_WORK ? WORK_LEN(r[1], r[2], r[3], r[4], r[5], r[6]) : 4u * SLOT_LEN(r[1], r[3], r[4]);
+        uint32_t len = type == OBJ_WORK ? WORK_LEN(r[1], r[2], r[3], r[4], r[5], r[6], r[7]) : 4u * SLOT_LEN(r[1], r[3], r[4]);
         const uint8_t *f = obj_newest(type, len, r[0], s_out);
         if (f) { *vs = r; return f; }
     }
@@ -713,11 +748,17 @@ static int obj_save(uint32_t type, uint32_t len)
  * sector 3 + i) its bytes i x SLS_P on; each sector: a header (SLS_MAGIC, a count, its index, the version, SLS_P), its
  * bytes, its CRC */
 static uint32_t sls_gen;
-static uint8_t *sls_byte(uint32_t b)            /* the slot byte at stream byte b (0: none, zeros) */
+static uint8_t drone_ext_tag[4] = {0x41, 0x45, 0x54, 0x4D}; /* AETM */
+
+static uint8_t *sls_byte(uint32_t b)
 {
     if (b < 4u * SLOT_PK) return &slots[b / SLOT_PK][b % SLOT_PK];
     b -= 4u * SLOT_PK;
-    return b < 4u * FM_ALL ? &slots[b / FM_ALL][SLOT_PK + b % FM_ALL] : 0;
+    if (b < 4u * FM_ALL) return &slots[b / FM_ALL][SLOT_PK + b % FM_ALL];
+    b -= 4u * FM_ALL;
+    if (b < 4u) return &drone_ext_tag[b];
+    b -= 4u;
+    return b < 4u * 20u ? &slots[b / 20u][SLOT_PK + FM_ALL + b % 20u] : 0;
 }
 static uint32_t sls_fm(uint32_t k) { return (4u * SLOT_PK + k * FM_ALL) / SLS_P; }   /* slot k's FM patches' sector */
 static const uint8_t *sls_ok(uint32_t i)        /* sector i, good (its CRC), or 0 */
@@ -783,7 +824,11 @@ static void slot_from(uint8_t *d, const uint8_t *q, uint32_t tn)   /* a slot sav
                                                  * steps of 3 B: what it has not as at power-on, no chords, no locks) */
 {
     uint32_t t, k;
-    for (k = 0; k < SLOT_ALL; k++) d[k] = 0;    /* (no FM patches: the PATCHes as built) */
+    for (k = 0; k < SLOT_ALL; k++) d[k] = 0;
+    for (t = 0; t < NT; t++) {
+        uint8_t *x = d + SLOT_PK + FM_ALL + t * 5u;
+        x[0] = 64; x[1] = 0; x[2] = 64; x[3] = 64; x[4] = 0;
+    }
     for (k = 0; k < 4u; k++) d[k] = q[k];
     d += 4, q += 4;
     for (t = 0; t < NT; t++, d += TRK_PK, q += tn) {
@@ -797,6 +842,39 @@ static void slot_from(uint8_t *d, const uint8_t *q, uint32_t tn)   /* a slot sav
     }
     for (k = 0; k < NT * LOCK_PK; k++) d[k] = 0;
 }
+static void slot_drone_defaults(uint32_t s)
+{
+    uint32_t t;
+    uint8_t *d = slots[s & 3u] + SLOT_PK + FM_ALL;
+    for (t = 0; t < NT; t++) {
+        d[t * 5u] = 64;
+        d[t * 5u + 1u] = 0;
+        d[t * 5u + 2u] = 64;
+        d[t * 5u + 3u] = 64;
+        d[t * 5u + 4u] = 0;
+    }
+}
+static void slot_drone_capture(uint32_t s)
+{
+    uint32_t t, k;
+    uint8_t *d = slots[s & 3u] + SLOT_PK + FM_ALL;
+    for (t = 0; t < NT; t++)
+        for (k = 0; k < 4u; k++)
+            d[t * 5u + k] = (uint8_t)clamp(trk[t].drone[k], 0, 127);
+    for (t = 0; t < NT; t++)
+        d[t * 5u + 4u] = (uint8_t)clamp(trk[t].drone_mode, 0, 1);
+}
+static void slot_drone_restore(uint32_t s)
+{
+    uint32_t t, k;
+    const uint8_t *d = slots[s & 3u] + SLOT_PK + FM_ALL;
+    for (t = 0; t < NT; t++)
+        for (k = 0; k < 4u; k++)
+            trk[t].drone[k] = clamp(d[t * 5u + k], 0, 127);
+    for (t = 0; t < NT; t++)
+        trk[t].drone_mode = clamp(d[t * 5u + 4u], 0, 1);
+}
+
 static void store_boot(void)                    /* power-on: the newest good copy of the working project, the slots
                                                  * (an older version's: the next autosave writes them as OBJ_VER); the
                                                  * sounds made 64 B ones, if need be */
@@ -805,6 +883,7 @@ static void store_boot(void)                    /* power-on: the newest good cop
     const uint16_t *vs;
     const uint8_t *w, *o;
     snd_upgrade();
+    for (k = 0; k < 4u; k++) slot_drone_defaults(k);
     for (k = 0; k < NT; k++) fm_builtin(k, trk[k].p[ENG_FM][0]);   /* (nothing saved: the PATCHes as built) */
     w = obj_find(OBJ_WORK, &vs, 0);
     if (w) {
@@ -842,11 +921,55 @@ static void store_boot(void)                    /* power-on: the newest good cop
             slots[k][SLOT_PK + b] = good >> sls_fm(k) & 1u ? save_flash(3u + sb / SLS_P)[OBJ_HDR + sb % SLS_P] : 0u;
         }
     }
+
+    /* Restore new AETM extensions or migrate legacy AETH extensions. */
+    if (good & (1u << 2u)) {
+        const uint8_t *f = save_flash(5u);
+        uint32_t off = 4u * SLOT_PK + 4u * FM_ALL;
+        if (f) {
+            const uint8_t *tag = f + OBJ_HDR + off % SLS_P;
+            if (tag[0] == 0x41u && tag[1] == 0x45u && tag[2] == 0x54u) {
+                if (tag[3] == 0x4Du) {
+                    for (k = 0; k < 4u; k++)
+                        for (i = 0; i < 20u; i++)
+                            slots[k][SLOT_PK + FM_ALL + i] =
+                                (uint8_t)clamp(f[OBJ_HDR + (off + 4u + k * 20u + i) % SLS_P],
+                                               i % 5u == 4u ? 0 : 0,
+                                               i % 5u == 4u ? 1 : 127);
+                } else if (tag[3] == 0x48u) {
+                    for (k = 0; k < 4u; k++) {
+                        for (i = 0; i < 4u; i++) {
+                            uint32_t t;
+                            for (t = 0; t < NT; t++)
+                                slots[k][SLOT_PK + FM_ALL + t * 5u + i] =
+                                    (uint8_t)clamp(f[OBJ_HDR + (off + 4u + k * 16u + t * 4u + i) % SLS_P],
+                                                   0, 127);
+                        }
+                        for (i = 0; i < NT; i++)
+                            slots[k][SLOT_PK + FM_ALL + i * 5u + 4u] = 0;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /* ---- the slots A..D */
-static void slot_save(uint32_t s) { pk_slot(slots[s & 3u]); slot_cur = (int32_t)(s & 3u); slot_dirty |= 1u << (s & 3u); }
-static void slot_erase(uint32_t s) { slots[s & 3u][0] = 0; slot_dirty |= 1u << (s & 3u); }
+static void slot_save(uint32_t s)
+{
+    s &= 3u;
+    pk_slot(slots[s]);
+    slot_drone_capture(s);
+    slot_cur = (int32_t)s;
+    slot_dirty |= 1u << s;
+}
+static void slot_erase(uint32_t s)
+{
+    s &= 3u;
+    slots[s][0] = 0;
+    slot_drone_defaults(s);
+    slot_dirty |= 1u << s;
+}
 static int slot_used(uint32_t s) { return slots[s & 3u][0] == 1u; }
 static int slot_has(uint32_t s, uint32_t t)     /* slot s used, track t's sequence in it with a note (SONG's lanes) */
 {
@@ -861,11 +984,13 @@ static void slot_recall(uint32_t s)             /* now (stopped) */
 {
     if (!slot_used(s)) return;
     uk_slot(slots[s & 3u], 0);
+    slot_drone_restore(s);
     slot_cur = (int32_t)(s & 3u);
 }
 static void slot_apply_isr(uint32_t s)          /* the audio ISR, at the bar (seq.c): the slot in, its sequences from step 1 */
 {
     uk_slot(slots[s & 3u], 1);
+    slot_drone_restore(s);
     slot_cur = (int32_t)(s & 3u);
 }
 static void project_new(void)                   /* NEW: the four tracks' power-on sounds, empty sequences */
@@ -873,8 +998,10 @@ static void project_new(void)                   /* NEW: the four tracks' power-o
     static const track_t T0 = TRK_DEF;
     uint32_t t, e, k;
     for (t = 0; t < NT; t++) {
-        for (e = 0; e < NENG; e++)
+        for (e = 0; e < NENG_STORED; e++)
             for (k = 0; k < 4u; k++) trk[t].p[e][k] = T0.p[e][k];
+        for (k = 0; k < 4u; k++) trk[t].drone[k] = T0.drone[k];
+        trk[t].drone_mode = T0.drone_mode;
         for (k = 0; k < 4u; k++) trk[t].env[k] = T0.env[k];
         if (trk[t].latch) nq_put(NQ_RELEASE, t, 0);
         trk[t].latch = T0.latch;
@@ -897,6 +1024,7 @@ static void project_new(void)                   /* NEW: the four tracks' power-o
         }
     }
     trk_mute = trk_solo = 0;                    /* (rc9: no track left muted or soloed) */
+    seq_global_transpose = 0;
     seq_clear();
 }
 

@@ -22,6 +22,8 @@
                                                  * divides signed gain steps by it: unsigned, a falling gain wraps) */
 #define CTL_LOG2 5
 #define NV 6u                                   /* voices, shared by the tracks */
+#define NV_CLASSIC 5u                           /* five voices for classic engines */
+#define DRONE_VOICE NV_CLASSIC
 #define NT 4u                                   /* tracks */
 #define NPARAM 4u                               /* an engine's parameters: KNOB 1..4 on the SOUND page */
 #define VPH 8u                                  /* a voice's phases for its engine (SUPERSAW: 7) */
@@ -31,7 +33,8 @@
                                                  * at once: ~0.9 of its RELEASE, a voice's last ~16 LSB) */
 #define FIN_STEP (REL_FIN / 207)                /* Q24 a control step: 207 steps, ~150 ms */
 enum { ST_OFF, ST_ATK, ST_SUS, ST_REL, ST_FADE };
-enum { ENG_VA, ENG_FM, ENG_SAMPLE, ENG_VOICE, ENG_WHEEL, ENG_PHYS, ENG_PHASE, NENG };
+#define NENG_STORED 7u
+enum { ENG_VA, ENG_FM, ENG_SAMPLE, ENG_VOICE, ENG_WHEEL, ENG_PHYS, ENG_PHASE, ENG_DRONE, NENG };
 
 typedef struct {
     volatile uint32_t req;                      /* main loop: + 1 after want_* */
@@ -55,7 +58,9 @@ typedef struct {
 
 typedef struct {
     volatile int32_t eng;                       /* ENG_: what its notes play */
-    volatile int32_t p[NENG][NPARAM];           /* every engine's four parameters (kept when the engine changes) */
+ volatile int32_t p[NENG_STORED][NPARAM];           /* every engine's four parameters (kept when the engine changes) */
+    volatile int32_t drone[NPARAM];             /* AETHER HYBRID DRONE: BLEND, MOTION, DENSITY, SPACE */
+    volatile int32_t drone_mode;              /* 0 AUTONOMOUS, 1 KEYBOARD */
     volatile int32_t level, dly, rev, grn, pan; /* MIXER 1 and 2: 0..127 (PAN 64: the middle) */
     volatile int32_t latch;                     /* SOURCE: LATCH, 0 OFF (a key sounds while held) / 1 ON */
     volatile int32_t env[4];                    /* ENV: ATTACK, DECAY, SUSTAIN, RELEASE, 0..127 */
@@ -81,7 +86,7 @@ typedef struct {
                                                  * semitones), its DECAY (0 .. 127: 10 ms .. ~9.7 s, as ENV's DECAY) */
     volatile int32_t glide;                     /* (V2) SOURCE's GLIDE: 0 off, 1 .. 127 (~10 ms .. 2.5 s; vc_gl) */
 } track_t;
-#define TRK_DEF {ENG_VA, {{0, 10, 90, 30}, {0, 64, 64, 20}, {0, 0, 127, 0}, {0, 12, 64, 10}, {4, 0, 40, 0}, {0, 64, 80, 64}, {0, 0, 60, 0}}, 100, 0, 100, 0, 64, 0, \
+#define TRK_DEF {ENG_VA, {{0, 10, 90, 30}, {0, 64, 64, 20}, {0, 0, 127, 0}, {0, 12, 64, 10}, {4, 0, 40, 0}, {0, 64, 80, 64}, {0, 0, 60, 0}}, {64, 0, 64, 64}, 0, 100, 0, 100, 0, 64, 0, \
                  {22, 85, 127, 89}, 0, 0, 0, 0, 0, 4, 1, 50, 64, 0, 0, 0, 127, 0, 100, 0, 0, {{0}}}
 static track_t trk[NT] = {TRK_DEF, TRK_DEF, TRK_DEF, TRK_DEF};   /* VA: SAW, DETUNE 10, CUTOFF 90, RESONANCE 30
                                                  * (Felucca's ANALOG); FM: BELL as made, DETUNE 20; SAMPLE: slot 1,
@@ -94,6 +99,10 @@ static track_t trk[NT] = {TRK_DEF, TRK_DEF, TRK_DEF, TRK_DEF};   /* VA: SAW, DET
                                                  * 1 octave, GATE 50 %); LFO DEPTH 0 (RATE ~1.7 s, PITCH, SINE);
                                                  * the filter open, FX 100 %; FM: its patch, BELL's (fm_builtin at
                                                  * power-on) */
+static volatile int32_t *engine_params(uint32_t t, uint32_t e)
+{
+    return e == ENG_DRONE ? trk[t].drone : trk[t].p[e];
+}
 static voice_t vc[NV];
 static uint32_t vblock;                         /* audio: + 1 every control block (fm.c: once a block a track) */
 
@@ -160,8 +169,9 @@ static inline uint32_t vinc(int32_t p16)
 #include "wheel.c"
 #include "phys.c"
 #include "phase.c"
+#include "drone.c"
 static const engine_t *const ENGINES[NENG] = {&VA_ENGINE, &FM_ENGINE, &SAMPLE_ENGINE, &FORMANT_ENGINE, &WHEEL_ENGINE,
-                                              &PHYS_ENGINE, &PHASE_ENGINE};   /* (by ENG_) */
+                                              &PHYS_ENGINE, &PHASE_ENGINE, &DRONE_ENGINE};   /* (by ENG_) */
 
 /* (V2) GENERATE's notes (gen.c): a voice's volume (0: full; else x / 256) and attack (0: the track's ATTACK; else
  * GEN_ATK's k - 1), asked with the note (gen_vel, gen_atk: the next note_on's), taken as it begins */

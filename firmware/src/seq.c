@@ -66,6 +66,7 @@ static void seq_clear(void)                     /* main loop: the four sequences
 {
     uint32_t t, p, i;
     for (t = 0; t < NT; t++) {
+        seq_track_transpose[t] = 0;
         seq[t].steps = 16, seq[t].div = 4, seq[t].swing = 0, seq[t].mode = SEQ_FWD;
         for (p = 0; p < SEQ_NPAT; p++)
             for (i = 0; i < SEQ_N; i++) {

@@ -120,9 +120,9 @@ static void host_probe(void)
                                                  * voices let go; the header's message, "_" for a space) */
         for (i = 0; hd_msg[i] && fm1_ms < hd_until; i++) putchar(hd_msg[i] == ' ' ? '_' : hd_msg[i]);
         if (!hd_msg[0] || fm1_ms >= hd_until) putchar('-');
-        printf(" p1 %d,%d,%d,%d fxk", (int)trk[0].p[clamp(trk[0].eng, 0, NENG - 1)][0],
-               (int)trk[0].p[clamp(trk[0].eng, 0, NENG - 1)][1], (int)trk[0].p[clamp(trk[0].eng, 0, NENG - 1)][2],
-               (int)trk[0].p[clamp(trk[0].eng, 0, NENG - 1)][3]);   /* (rc9: T1's source's four; the 16 effects' knobs
+        printf(" p1 %d,%d,%d,%d fxk", (int)engine_params(0, clamp(trk[0].eng, 0, NENG - 1))[0],
+               (int)engine_params(0, clamp(trk[0].eng, 0, NENG - 1))[1], (int)engine_params(0, clamp(trk[0].eng, 0, NENG - 1))[2],
+               (int)engine_params(0, clamp(trk[0].eng, 0, NENG - 1))[3]);   /* (rc9: T1's source's four; the 16 effects' knobs
                                                  * as a project saves them: TAPE, GRAIN, DELAY, SPACE) */
         for (i = 0; i < 16u; i++) printf("%s%d", i ? "," : " ", (int)*PK_FX[i]);
         printf(" chd");                        /* (rc11: each track's chord mode / CHORD TYPE / VOICING: tests/chord_test.py) */

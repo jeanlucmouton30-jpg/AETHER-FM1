@@ -76,7 +76,7 @@ static char *ui_3(char *s, uint32_t v) { s[0] = (char)('0' + v / 100u % 10u), s[
 static uint32_t ui_pc(int32_t v) { return ((uint32_t)clamp(v, 0, 127) * 100u + 63u) / 127u; }
 
 /* a source's short name (the HOME slabs: "T2 FM") */
-static const char *const SRC_CODE[NENG] = {"VA", "FM", "SA", "VO", "WH", "PH", "PD"};
+static const char *const SRC_CODE[NENG] = {"VA", "FM", "SA", "VO", "WH", "PH", "PD", "DR"};
 
 /* ---- the header */
 static char ui_hb[12], ui_hl[24], ui_hr[12];    /* the button, the left, the right */
@@ -265,7 +265,7 @@ static void lock_slab(uint32_t k, slab_t *S)    /* SEL held on SEQ's pages: the 
     const engine_t *E = sel_engine();
     int32_t pv[4], j, mx = E->max[k];
     char t[32];
-    for (j = 0; j < 4; j++) pv[j] = st->lmask >> j & 1u ? st->lv[j] : trk[sel].p[sel_eng()][j];
+    for (j = 0; j < 4; j++) pv[j] = st->lmask >> j & 1u ? st->lv[j] : engine_params(sel, sel_eng())[j];
     ui_label(S->lab, E->knob[k]);
     S->fill = (uint8_t)((clamp(pv[k], 0, mx) * 8 + mx / 2) / (mx ? mx : 1));
     S->acc = (uint8_t)(st->lmask >> k & 1u);
@@ -314,7 +314,7 @@ static void ui_slab_make(uint32_t k, slab_t *S)
         if (eng == ENG_PHYS && k == 0u) { put_s(S->val, md == PM_MEMB ? "MEMB" : md == PM_SYMP ? "SYMP" : N_PHYS_MODEL[md]); return; }
         if (mx <= 24 || (eng == ENG_SAMPLE && k == 2u) || (eng == ENG_VOICE && k == 0u) ||
             (eng == ENG_PHYS && k == 1u && md == PM_SYMP)) {   /* (the source's own words) */
-            sel_engine()->text(trk[sel].p[eng], k, t);
+            sel_engine()->text(engine_params(sel, eng), k, t);
             ui_squeeze(S->val, t);
             return;
         }
@@ -1100,6 +1100,41 @@ static void pic_phase(void)                     /* the bent waveform of WAVE at 
     }
 }
 
+static void pic_drone(void)                    /* HYBRID DRONE: analog wave and harmonic partials */
+{
+    const volatile int32_t *p = engine_params(sel, ENG_DRONE);
+    int32_t x, y, blend = clamp(p[0], 0, 127), density = clamp(p[2], 0, 127);
+    uint32_t bars = 1u + (uint32_t)density * 11u / 127u;
+    char s[16];
+
+    ui_caption("ANALOG", "HARMONICS");
+
+    for (x = 0; x < 54; x++) {
+        uint32_t phase = (uint32_t)x * 79536431u;
+        int32_t a = sine_i(phase);
+        int32_t b = sine_i(phase * 2u);
+        int32_t ya = 14 - a * 10 / 32767;
+        int32_t yb = 14 - b * 7 / 32767;
+
+        ui_cell(x, ya, blend >= 64 ? UI_L : UI_M);
+        ui_cell(x, yb, blend <= 64 ? UI_L : UI_D);
+    }
+
+    for (x = 0; x < 12; x++) {
+        int32_t h = 3 + (11 - x) * 7 / 11;
+        if ((uint32_t)x < bars)
+            for (y = 29 - h; y < 29; y++)
+                ui_cell(4 + x * 4, y, UI_M);
+    }
+
+    ui_text(PX0 + 4, PY0 + 96,
+            blend < 43 ? "ANALOG" : blend > 84 ? "SPECTRAL" : "HYBRID",
+            1, UI_L);
+    put_u(s, bars);
+    put_s(s, " PARTIALS");
+    ui_text(PX0 + 124, PY0 + 96, s, 1, UI_M);
+}
+
 static void pic_pdline(void)                    /* (V2) LINE 2: line 1 (light) beside line 2 (mid: its WAVE, DCW), how
                                                  * they meet */
 {
@@ -1142,12 +1177,12 @@ static void pic_pdenv(void)                     /* (V2) PHASE ENV: the two envel
     ui_text(PX0 + 124, PY0 + 96, trk[sel].pd_pe ? "PITCH ON" : "PITCH OFF", 1, trk[sel].pd_pe ? ui_acc : UI_M);
 }
 
-static void pic_source(void)                    /* the seven sources, the track's in the accent; LATCH */
+static void pic_source(void)                    /* the eight sources, the track's in the accent; LATCH */
 {
     int32_t i, e = (int32_t)sel_eng();
     ui_caption("SOURCE", 0);
     for (i = 0; i < (int32_t)NENG; i++) {
-        int32_t y = 44 + i * 16;
+        int32_t y = 44 + i * 15;
         if (i == e) ui_rect(PX0, y - 3, 108, 14, UI_D);
         ui_text(PX0 + 4, y, i == e ? ">" : " ", 1, ui_acc);
         ui_text(PX0 + 16, y, ENGINES[i]->name, 1, i == e ? ui_acc : UI_M);
@@ -1161,9 +1196,15 @@ static void pic_source(void)                    /* the seven sources, the track'
         if (trk[sel].glide) ui_time(g, 10u * pow2_q16(clamp(trk[sel].glide, 0, 127) * 12)); else put_s(g, "OFF");
         ui_text(140, 152, g, 1, trk[sel].glide ? UI_L : UI_M);
     }
-    if (e == ENG_VOICE) {                       /* (V2) VOICE's TYPE: one singer, or a choir a note */
+    if (e == ENG_VOICE) {
         ui_text(140, 112, "TYPE", 1, UI_M);
         ui_text(140, 126, VT_NAME[clamp(trk[sel].vty, 0, NVT - 1)], 1, trk[sel].vty ? ui_acc : UI_L);
+    } else if (e == ENG_DRONE) {
+        ui_text(140, 112, "MODE", 1, UI_M);
+        ui_rect(140, 122, 64, 14, trk[sel].drone_mode ? ui_acc : UI_D);
+        ui_text(140 + (trk[sel].drone_mode ? 12 : 8), 126,
+                trk[sel].drone_mode ? "KEY" : "AUTO", 2,
+                trk[sel].drone_mode ? UI_K : UI_L);
     }
 }
 
@@ -1856,7 +1897,9 @@ static void ui_pic_draw(void)
         case ENG_VOICE: pic_voice(); return;
         case ENG_WHEEL: pic_wheel(); return;
         case ENG_PHYS: pic_phys(); return;
-        default: pic_phase(); return;
+        case ENG_PHASE: pic_phase(); return;
+        case ENG_DRONE: pic_drone(); return;
+        default: pic_notbuilt(); return;
         }
     case PG_SOURCE: pic_source(); return;
     case PG_ENV: pic_env(); return;

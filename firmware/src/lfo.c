@@ -89,9 +89,9 @@ static const volatile int32_t *lfo_params(uint32_t v, uint32_t t, uint32_t e)
 {
     int32_t a = lfo_amt[t], k = trk[t].lfo_dest - LD_K1, mx, i;
     uint32_t lm = lk_m[t];
-    if (((!a || k < 0 || k > 3) && !lm) || v >= NV) return trk[t].p[e];
+    if (((!a || k < 0 || k > 3) && !lm) || v >= NV) return engine_params(t, e);
     for (i = 0; i < 4; i++)
-        lfo_pm[v][i] = lm >> i & 1u ? clamp(lk_v[t][i], 0, ENGINES[e]->max[i]) : trk[t].p[e][i];
+        lfo_pm[v][i] = lm >> i & 1u ? clamp(lk_v[t][i], 0, ENGINES[e]->max[i]) : engine_params(t, e)[i];
     if (!a || k < 0 || k > 3) return lfo_pm[v];
     mx = ENGINES[e]->max[k];
     lfo_pm[v][k] = clamp(lfo_pm[v][k] + (a * mx + (a < 0 ? -32767 : 32767)) / 65534, 0, mx);

@@ -645,7 +645,7 @@ static uint32_t phys_count(void)                /* PHYS voices sounding: its not
 {
     uint32_t i, v, n = 0;
     for (i = 0; i < nlat; i++) n += trk[lat_trk[i]].eng == ENG_PHYS;
-    for (v = 0; v < NV; v++)
+    for (v = 0; v < NV_CLASSIC; v++)
         if (vc[v].stage == ST_REL && vc[v].eng == ENG_PHYS && !voice_latched(v)) n++;
     return n;
 }
@@ -660,20 +660,20 @@ static uint32_t trk_voices(uint32_t t, int phys)   /* track t's voices sounding 
 {
     uint32_t i, v, n = 0;
     for (i = 0; i < nlat; i++) n += lat_trk[i] == t && (!phys || trk[t].eng == ENG_PHYS);
-    for (v = 0; v < NV; v++)
+    for (v = 0; v < NV_CLASSIC; v++)
         n += !voice_latched(v) && !voice_idle(v) && vc[v].trk == t && (!phys || vc[v].eng == ENG_PHYS);
     return n;
 }
 static int take_from(uint32_t t, int phys, int rel, uint32_t *v)   /* track t's quietest release, else (rel 0) its oldest
                                                  * note: its voice */
 {
-    uint32_t w, i, best = NV;
+    uint32_t w, i, best = NV_CLASSIC;
     int32_t lv = 0x7FFFFFFF;
-    for (w = 0; w < NV; w++)
+    for (w = 0; w < NV_CLASSIC; w++)
         if (vc[w].stage == ST_REL && vc[w].trk == t && (!phys || vc[w].eng == ENG_PHYS) && !voice_latched(w) &&
             voice_level(w) < lv)
             lv = voice_level(w), best = w;
-    if (best < NV) { *v = best; return 1; }
+    if (best < NV_CLASSIC) { *v = best; return 1; }
     for (i = 0; !rel && i < nlat; i++)
         if (lat_trk[i] == t && (!phys || trk[t].eng == ENG_PHYS)) { *v = drop_at(i); return 1; }
     return 0;
@@ -683,9 +683,9 @@ static int pick_voice(uint32_t t, uint32_t note, uint32_t *v)
     uint32_t w, u, most = 0, from = NT;
     int phys = trk[t].eng == ENG_PHYS && phys_count() >= PHYS_MAX;
     if (!phys) {
-        for (w = 0; w < NV; w++)                /* (its own release of this note: it again) */
+        for (w = 0; w < NV_CLASSIC; w++)                /* (its own release of this note: it again) */
             if (!voice_latched(w) && !voice_idle(w) && vc[w].note == note && vc[w].trk == t) { *v = w; return 1; }
-        for (w = 0; w < NV; w++)
+        for (w = 0; w < NV_CLASSIC; w++)
             if (!voice_latched(w) && voice_idle(w)) { *v = w; return 1; }
     }
     if (trk_voices(t, phys)) return take_from(t, phys, !phys, v);   /* (its own release; PHYS: else its oldest PHYS
@@ -711,27 +711,35 @@ static uint32_t gen_share(uint32_t t)           /* track t's share (0: not two t
         else busy += trk_voices(u, 0);
     }
     if (n < 2u) return 0;
-    w = busy < NV ? NV - busy : 0u;
+    w = busy < NV_CLASSIC ? NV_CLASSIC - busy : 0u;
     w = w / n + (r < w % n);
     return w ? w : 1u;
 }
 static int gen_pick(uint32_t t, uint32_t note, uint32_t *v)   /* a generated note's voice, sharing (gen_share) */
 {
-    uint32_t w, best = NV;
+    uint32_t w, best = NV_CLASSIC;
     int32_t lv = 0x7FFFFFFF;
-    for (w = 0; w < NV; w++)                    /* (its own release of this note: it again) */
+    for (w = 0; w < NV_CLASSIC; w++)                    /* (its own release of this note: it again) */
         if (!voice_latched(w) && !voice_idle(w) && vc[w].note == note && vc[w].trk == t) { *v = w; return 1; }
     if (!(trk[t].eng == ENG_PHYS && phys_count() >= PHYS_MAX) && trk_voices(t, 0) < gen_share(t))
-        for (w = 0; w < NV; w++)                /* (under its share: an idle one; PHYS past PHYS_MAX: not) */
+        for (w = 0; w < NV_CLASSIC; w++)                /* (under its share: an idle one; PHYS past PHYS_MAX: not) */
             if (!voice_latched(w) && voice_idle(w)) { *v = w; return 1; }
-    for (w = 0; w < NV; w++)                    /* (its own quietest let go: a release, or one just let go) */
+    for (w = 0; w < NV_CLASSIC; w++)                    /* (its own quietest let go: a release, or one just let go) */
         if (!voice_latched(w) && !voice_idle(w) && vc[w].trk == t && voice_level(w) < lv) lv = voice_level(w), best = w;
-    if (best < NV) { *v = best; return 1; }
+    if (best < NV_CLASSIC) { *v = best; return 1; }
     return 0;
 }
+static void drone_seq_on(uint32_t t, uint32_t id, uint32_t note);
+static void drone_seq_off(uint32_t t, uint32_t id);
+
 static void note_off(uint32_t t, uint32_t id, uint32_t src, int echo)   /* origin id's voices released (its chord) */
 {
-    int i = note_find(t, id, src);
+    int i;
+    if (src == SRC_SEQ && t < NT && trk[t].eng == ENG_DRONE) {
+        drone_seq_off(t, id);
+        return;
+    }
+    i = note_find(t, id, src);
     if (i < 0) return;
     if (echo) ec_put(0x80, t, lat_root[i]);     /* (the note its on was echoed with) */
     while ((i = note_find(t, id, src)) >= 0) {
@@ -739,6 +747,36 @@ static void note_off(uint32_t t, uint32_t id, uint32_t src, int echo)   /* origi
         drop((uint32_t)i);
     }
 }
+/* SEQUENCER TRANSPOSE: keyboard/MIDI reference note C4 (60) is neutral. */
+static volatile int32_t seq_global_transpose;
+static volatile int32_t seq_track_transpose[NT];
+
+/* Compact encoding: 0 = neutral, 1..24 = +1..+24, 25..48 = -1..-24. */
+static uint8_t seq_transpose_pack(int32_t v)
+{
+    v = clamp(v, -24, 24);
+    return (uint8_t)(v > 0 ? v : v < 0 ? 24 - v : 0);
+}
+static int32_t seq_transpose_unpack(uint32_t code)
+{
+    return code == 0u ? 0 :
+           code <= 24u ? (int32_t)code :
+           code <= 48u ? 24 - (int32_t)code : 0;
+}
+
+/* Signed byte encoding keeps old reserved bytes (zero) neutral. */
+static uint8_t seq_transpose_to_byte(int32_t v)
+{
+    v = clamp(v, -24, 24);
+    return (uint8_t)(v < 0 ? v + 256 : v);
+}
+static int32_t seq_transpose_from_byte(uint32_t v)
+{
+    int32_t n = (int32_t)(v & 255u);
+    if (n >= 128) n -= 256;
+    return clamp(n, -24, 24);
+}
+
 static void note_on(uint32_t t, uint32_t id, uint32_t note, uint32_t src, int echo, int32_t ch)   /* origin id plays
                                                  * note (ch -1: the track's chord, its chord mode ON; 0: the note
                                                  * alone; a chord step's byte: that chord); sounding already: its own
@@ -749,6 +787,13 @@ static void note_on(uint32_t t, uint32_t id, uint32_t note, uint32_t src, int ec
     uint32_t v, i, n, no = 0, on = 0;
     int j;
     if (note > 127u || t >= NT || (trk_quiet >> t & 1u)) return;   /* (a silent track: none) */
+    /* Only sequencer notes are shifted; keyboard and MIDI command notes stay at their played pitch. */
+    if (src == SRC_SEQ)
+        note = (uint32_t)clamp((int32_t)note + seq_track_transpose[t] + seq_global_transpose, 0, 127);
+    if (src == SRC_SEQ && trk[t].eng == ENG_DRONE) {
+        drone_seq_on(t, id, note);
+        return;
+    }
     while ((j = note_find(t, id, src)) >= 0) {  /* (struck again: its voices out of the list, to be used again) */
         if (echo && no == 0u) ec_put(0x80, t, lat_root[j]);
         if (no < CH_MAX) own[no++] = lat_voice[j];
@@ -814,6 +859,14 @@ static int voices_silent(void)                  /* no voice sounds: no note on (
         if (!voice_idle(v)) return 0;
     return 1;
 }
+
+static int classic_voices_silent(void)           /* the five classic voices; the drone may continue */
+{
+    uint32_t v;
+    for (v = 0; v < NV_CLASSIC; v++)
+        if (!voice_idle(v)) return 0;
+    return 1;
+}
 #define QUIET_TAIL_MS 10000u                    /* (rc9) an effect still sounding this long after the last voice: as quiet */
 static int quiet(void)                          /* nothing sounds, not even a release or an effect's tail (main loop) */
 {
@@ -836,25 +889,36 @@ static int quiet(void)                          /* nothing sounds, not even a re
  * a release first (the quietest), then the oldest note the sequencer, an arp or GENERATE played, the hands' (a latched
  * drone) last; each counted (shed_n: the header says so, the main loop) */
 static volatile uint32_t shed_n;                /* audio: voices the guard let go */
+static uint8_t drone_auto_inhibit;              /* overload cut: AUTO waits for owner or mode change */
+static void drone_key_forget(void);             /* drone controller, defined below */
 static void shed_voice(void)
 {
     static uint32_t hold;
-    uint32_t v = NV, w, i;
+    uint32_t v = NV_CLASSIC, w, i;
     int32_t lv = 0x7FFFFFFF;
     if (hold) { hold--; return; }
     if (cpu_over < 8u) return;
-    for (w = 0; w < NV; w++)                    /* (a release: the quietest) */
+    for (w = 0; w < NV_CLASSIC; w++)                    /* (a release: the quietest) */
         if (vc[w].stage == ST_REL && !voice_latched(w) && voice_level(w) < lv) lv = voice_level(w), v = w;
-    if (v == NV) {
+    if (v == NV_CLASSIC) {
         for (i = 0; i < nlat && lat_src[i] == SRC_KEY; i++)   /* (a note no hand plays: the oldest) */
             ;
         if (i < nlat) v = drop_at(i);
         else if (nlat) v = drop_oldest();       /* (the hands' oldest) */
         else
-            for (v = 0; v < NV && (voice_idle(v) || vc[v].stage == ST_FADE); v++)
+            for (v = 0; v < NV_CLASSIC && (voice_idle(v) || vc[v].stage == ST_FADE); v++)
                 ;
     }
-    if (v < NV) voice_fade(v), shed_n++;
+    if (v < NV_CLASSIC) {
+        voice_fade(v);
+        shed_n++;
+    } else if (!voice_idle(DRONE_VOICE) &&
+               (vc[DRONE_VOICE].stage != ST_FADE || vc[DRONE_VOICE].want_on)) {
+        drone_key_forget();
+        voice_fade(DRONE_VOICE);
+        drone_auto_inhibit = 1u;
+        shed_n++;
+    }
     hold = 4u * (VB / CTL);                     /* (ctl_hook runs a control step: 8 a block) */
 }
 
@@ -897,12 +961,127 @@ static void restart_track(uint32_t t)           /* audio: a new source: the trac
 #include "arp.c"                                /* the arpeggiator (its notes: note_on, note_off, SRC_ARP) */
 #include "clock.c"                              /* GR!MM V2: the MIDI clock in and out (SYSTEM 2: CLOCK) */
 
+/* AETHER HYBRID DRONE: one global instance, on the first unmuted DRONE track. */
+static uint32_t drone_owner = NT;
+static int32_t drone_mode_seen = -1;
+static uint8_t drone_key_active, drone_key_echo, drone_key_id, drone_key_note, drone_key_src;
+
+static void drone_key_forget(void)
+{
+    if (drone_key_active && drone_key_echo && drone_owner < NT)
+        ec_put(0x80, drone_owner,
+               drone_key_note | (drone_key_src == SRC_SEQ ? EC_SEQ : 0u));
+    drone_key_active = 0;
+}
+
+static void drone_key_stop(uint32_t t)
+{
+    if (t != drone_owner || !drone_key_active) return;
+    drone_key_forget();
+    voice_release(DRONE_VOICE);
+}
+
+static void drone_key_start(uint32_t t, uint32_t id, uint32_t note, int echo, uint32_t src)
+{
+    if (t != drone_owner) return;
+    drone_key_forget();
+    drone_key_active = 1;
+    drone_key_id = (uint8_t)id;
+    drone_key_note = (uint8_t)note;
+    drone_key_echo = (uint8_t)echo;
+    drone_key_src = (uint8_t)src;
+    voice_start(DRONE_VOICE, t, note);
+    if (echo) ec_put(0x90, t, note | (src == SRC_SEQ ? EC_SEQ : 0u));
+}
+
+static void drone_seq_on(uint32_t t, uint32_t id, uint32_t note)
+{
+    if (t == drone_owner && trk[t].drone_mode) {
+        drone_key_start(t, id, note, mo_seq && !out_twin(NV, t, note), SRC_SEQ);
+    } else if (mo_seq && !out_twin(NV, t, note)) {
+        ec_put(0x90, t, note | EC_SEQ);
+    }
+}
+
+static void drone_seq_off(uint32_t t, uint32_t id)
+{
+    if (t == drone_owner && trk[t].drone_mode) {
+        if (drone_key_active && drone_key_src == SRC_SEQ &&
+            drone_key_id == (uint8_t)id)
+            drone_key_stop(t);
+    } else if (mo_seq && !out_twin(NV, t, id)) {
+        ec_put(0x80, t, id | EC_SEQ);
+    }
+}
+
+static void drone_watch(void)
+{
+    uint32_t t, mode;
+
+    /* The lowest-numbered unmuted track using DRONE owns the single voice. */
+    for (t = 0; t < NT; t++)
+        if (!(trk_quiet >> t & 1u) && trk[t].eng == ENG_DRONE) break;
+
+    if (t == NT) {
+        if (drone_owner != NT) {
+            drone_key_forget();
+            drone_owner = NT;
+            drone_mode_seen = -1;
+            drone_auto_inhibit = 0;
+            voice_fade(DRONE_VOICE);
+        }
+        return;
+    }
+
+    mode = trk[t].drone_mode ? 1u : 0u;
+
+    if (t != drone_owner) {
+        drone_key_forget();
+        drone_auto_inhibit = 0;
+        drone_owner = t;
+        drone_mode_seen = (int32_t)mode;
+        if (!mode) voice_start(DRONE_VOICE, t, 60u);
+        else voice_fade(DRONE_VOICE);
+        return;
+    }
+
+    if ((int32_t)mode != drone_mode_seen) {
+        drone_key_forget();
+        drone_auto_inhibit = 0;
+        drone_mode_seen = (int32_t)mode;
+        if (!mode) voice_start(DRONE_VOICE, t, 60u);
+        else voice_fade(DRONE_VOICE);
+    } else if (!mode && !drone_auto_inhibit && voice_idle(DRONE_VOICE)) {
+        voice_start(DRONE_VOICE, t, 60u);
+    }
+}
+
 /* audio: a key's (a MIDI note's) ask, on its track: ARP on, into or out of the arp's list; else its own notes */
 static void key_ask(uint32_t c, uint32_t t, uint32_t id, uint32_t note, int echo)
 {                                               /* (V2: TOGGLE, LATCH ON: the note latched as this one, a key's or
                                                  * MIDI's, whichever latched it, let go; else on. Its echo off if a
                                                  * key's: that one's echo went out) */
     int32_t h;
+
+    /* The last keyboard/MIDI note on this track sets its sequence transpose relative to C4. */
+    if (t < NT && (c == NQ_ON || c == NQ_TOGGLE) && note <= 127u)
+        seq_track_transpose[t] = clamp((int32_t)note - 60, -24, 24);
+
+    /* DRONE bypasses chords and ARP: keyboard mode is strictly monophonic. */
+    if (trk[t].eng == ENG_DRONE) {
+        if (t != drone_owner || (trk_quiet >> t & 1u) || !trk[t].drone_mode) return;
+        if (c == NQ_TOGGLE) {
+            if (drone_key_active && drone_key_src == SRC_KEY && drone_key_note == note)
+                drone_key_stop(t);
+            else drone_key_start(t, id, note, echo, SRC_KEY);
+        } else if (c == NQ_ON) {
+            drone_key_start(t, id, note, echo, SRC_KEY);
+        } else if (c == NQ_OFF && drone_key_active && drone_key_src == SRC_KEY && drone_key_id == id) {
+            drone_key_stop(t);
+        }
+        return;
+    }
+
     if (trk[t].arp) {
         if (c == NQ_TOGGLE && (h = arp_root(t, note)) >= 0) arp_take(t, (uint32_t)h, h < 27);
         else if (c == NQ_ON || c == NQ_TOGGLE) arp_add(t, id, note, echo);
@@ -934,6 +1113,7 @@ static void mute_watch(void)
 static void ctl_hook(void)
 {
     mute_watch();
+    drone_watch();
     lfo_ctl();
     arp_watch();
     if (nq_w - nq_r > NQ_LEN) nq_r = nq_w - NQ_LEN;   /* (overrun: the oldest asks are gone) */
@@ -952,6 +1132,8 @@ static void ctl_hook(void)
             gen_vel = 0;
             break;
         case NQ_RELEASE:                        /* LATCH ON -> OFF: the track's notes released (its arp emptied) */
+            if (t == drone_owner && trk[t].eng == ENG_DRONE && trk[t].drone_mode)
+                drone_key_stop(t);
             release_all(t);
             if (trk[t].arp) arp_clear(t);
             break;
@@ -1173,7 +1355,7 @@ static const page_t PAGES[NPAGE] = {
     {"FM OP", BTN_EDIT, 1, 1, 1, {"RATIO", "LEVEL", "ATTACK", "DECAY"}},  /* (the operator OP selects) */
     {"MASTER", BTN_FX, 1, 0, 1, {"CUTOFF", "RESONANCE", "TYPE", "POSITION"}},   /* (V2: FX's 5th and 6th, master.c) */
     {"DRIVE", BTN_FX, 1, 0, 1, {"AMOUNT", "TYPE", "TONE", "MIX"}},
-    {"SYSTEM 3", BTN_HOME, 1, 0, 0, {"LATCH", "VELOCITY", "", ""}},   /* (V2: VELOCITY: a MIDI note's volume; a NEW
+    {"SYSTEM 3", BTN_HOME, 1, 0, 0, {"LATCH", "VELOCITY", "TRANSPOSE", ""}},   /* (V2: VELOCITY: a MIDI note's volume; a NEW
                                                  * project's tracks' LATCH) */
     {"LINE 2", BTN_EDIT, 1, 1, 1, {"WAVE", "DCW", "RING", "NOISE"}},   /* (V2: a PHASE track's, after SOURCE: phase.c) */
     {"PHASE ENV", BTN_EDIT, 1, 1, 1, {"DCW ENV", "DCW DECAY", "PITCH ENV", "PITCH DECAY"}},   /* (V2: a PHASE track's, after
@@ -1257,9 +1439,11 @@ static volatile int32_t *knob_param(uint32_t pg, uint32_t k)   /* what KNOB k + 
                                                {&dl_time, &dl_fb, &dl_wear, &dl_mix},
                                                {&rv_size, &rv_damp, &rv_mix, &rv_pre}};
     switch (pg) {
-    case PG_SOUND: return &trk[sel].p[sel_eng()][k];
-    case PG_SOURCE: return k == 0u ? &trk[sel].eng : k == 1u ? &trk[sel].latch : k == 2u && sel_eng() == ENG_VOICE ? &trk[sel].vty :
-                           k == 3u ? &trk[sel].glide : 0;   /* (V2: GLIDE) */
+    case PG_SOUND: return &engine_params(sel, sel_eng())[k];
+    case PG_SOURCE: return k == 0u ? &trk[sel].eng : k == 1u ? &trk[sel].latch :
+                           k == 2u && sel_eng() == ENG_VOICE ? &trk[sel].vty :
+                           k == 2u && sel_eng() == ENG_DRONE ? &trk[sel].drone_mode :
+                           k == 3u ? &trk[sel].glide : 0;   /* (V2: VOICE TYPE, DRONE MODE, GLIDE) */
     case PG_ENV: return &trk[sel].env[k];
     case PG_SONG: return k == 0u ? &song_sect : k == 1u ? &song_pat[clamp(song_sect, 0, SONG_N - 1)] :
                          k == 2u ? &song_rep[clamp(song_sect, 0, SONG_N - 1)] : &song_mode;
@@ -1291,19 +1475,21 @@ static volatile int32_t *knob_param(uint32_t pg, uint32_t k)   /* what KNOB k + 
     case PG_PROJECTS: return k == 0u ? &pj_slot : k == 3u ? &pj_act : 0;   /* (CATEGORY, TYPE: "-") */
     case PG_SYSTEM: return k == 0u ? &sy_col : k == 1u ? &sy_mch : k == 2u ? &sy_tune : &sy_scr;
     case PG_SYS2: return k == 0u ? &sy_learn : k == 1u ? &sy_out : k == 2u ? &sy_fac : &sy_clk;
-    case PG_SYS3: return k == 0u ? &sy_latch : k == 1u ? &sy_vel : 0;   /* (V2: LATCH, VELOCITY) */
+    case PG_SYS3: return k == 0u ? &sy_latch : k == 1u ? &sy_vel : k == 2u ? &seq_global_transpose : 0;
     default: return 0;                          /* (not built yet: the knobs do nothing) */
     }
 }
 static const char *knob_name(uint32_t pg, uint32_t k)
 {
     return pg == PG_SOUND ? sel_engine()->knob[k] : pg == PG_MIX1 && !k ? MX_NAME[clamp(mx_sq, 0, MX_N - 1)] :
-           pg == PG_SOURCE && k == 2u && sel_eng() == ENG_VOICE ? "TYPE" : PAGES[pg].knob[k];
+           pg == PG_SOURCE && k == 2u && sel_eng() == ENG_VOICE ? "TYPE" :
+           pg == PG_SOURCE && k == 2u && sel_eng() == ENG_DRONE ? "MODE" : PAGES[pg].knob[k];
 }
 static int32_t knob_max(uint32_t pg, uint32_t k)
 {
     static const int32_t GRID_MAX[4] = {127, 100, 4, SEQ_N}, PATT_MAX[4] = {SEQ_N, 7, 127, SEQ_NMODE - 1};
-    return pg == PG_SOUND ? sel_engine()->max[k] : pg == PG_SOURCE ? (k == 3u ? 127 : k == 2u ? NVT - 1 : k ? 1 : (int32_t)NENG - 1) :
+    return pg == PG_SOUND ? sel_engine()->max[k] : pg == PG_SOURCE ? (k == 3u ? 127 : k == 2u ? (sel_eng() == ENG_DRONE ? 1 : NVT - 1) :
+                              k ? 1 : (int32_t)NENG - 1) :
            pg == PG_GRID ? GRID_MAX[k] : pg == PG_PATTERN ? PATT_MAX[k] :
            pg == PG_SOUNDS ? (k == 0u ? SND_N - 1 : k == 1u ? NCAT - 1 : k == 2u ? (int32_t)NENG : 2) :
            pg == PG_PROJECTS ? 3 : pg == PG_SCALE ? (k ? NSCALE - 1 : 11) : pg == PG_CHORD ? (k ? NVOICING - 1 : NCHORD - 1) :
@@ -1311,7 +1497,7 @@ static int32_t knob_max(uint32_t pg, uint32_t k)
            pg == PG_LFO ? (k == 0u ? 127 : k == 1u ? 100 : k == 2u ? NLFODEST - 1 : NLFOSHAPE - 1) :
            pg == PG_SONG ? (k == 0u ? SONG_N - 1 : k == 1u ? SONG_END : k == 2u ? 16 : NSONGMODE - 1) :
            pg == PG_SYSTEM ? (k == 0u ? 3 : k == 1u ? MCH_MAX : k == 2u ? 50 : 4) : pg == PG_SYS2 ? (k == 3u ? CK_N - 1 : k ? 1 : 2) :
-           pg == PG_SYS3 ? 1 : pg == PG_PDLINE ? (k == 0u ? 8 : k == 1u ? 127 : 1) : pg == PG_PDENV ? (k == 2u ? 63 : 127) :
+           pg == PG_SYS3 ? (k == 2u ? 24 : 1) : pg == PG_PDLINE ? (k == 0u ? 8 : k == 1u ? 127 : 1) : pg == PG_PDENV ? (k == 2u ? 63 : 127) :
            pg == PG_HOME && k == 3u ? 200 : pg == PG_FMALGO ? (k == 0u ? 31 : k == 1u ? 7 : k == 2u ? 5 : 99) :
            pg == PG_FMOP ? (k ? 99 : 31) : pg == PG_MIX2 ? (k == 1u ? NFTYPE - 1 : k == 2u ? 1 : 127) :
            pg == PG_MASTER ? (k == 2u ? NFTYPE - 1 : k == 3u ? NMPOS - 1 : 127) :
@@ -1321,6 +1507,7 @@ static int32_t knob_min(uint32_t pg, uint32_t k)   /* (RATCHET, LENGTH, STEPS, O
 {
     if (pg == PG_ARP && k >= 2u) return k == 2u ? 1 : 10;
     if (pg == PG_SONG && k == 2u) return 1;     /* (REPEATS from 1) */
+    if (pg == PG_SYS3 && k == 2u) return -24;  /* GLOBAL TRANSPOSE: -24..+24 */
     if (pg == PG_SYSTEM && k == 2u) return -50; /* (TUNE: -50 .. +50 cents) */
     if (pg == PG_PDENV && k == 2u) return -64;  /* (V2: PITCH ENV: -64 .. +63 semitones) */
     return (pg == PG_GRID && k >= 2u) || (pg == PG_PATTERN && k == 0u);
@@ -1380,11 +1567,14 @@ static void knob_text(uint32_t pg, uint32_t k, char *s)   /* knob k's value on p
         return;
     }
     switch (pg) {
-    case PG_SOUND: sel_engine()->text(trk[sel].p[sel_eng()], k, s); return;
+    case PG_SOUND: sel_engine()->text(engine_params(sel, sel_eng()), k, s); return;
     case PG_SOURCE:
         if (k == 0u) put_s(s, sel_engine()->name);
         else if (k == 1u) put_s(s, v ? "ON" : "OFF");
-        else if (k == 2u) put_s(s, VT_NAME[clamp(v, 0, NVT - 1)]);   /* (V2: VOICE's TYPE) */
+        else if (k == 2u && sel_eng() == ENG_VOICE)
+            put_s(s, VT_NAME[clamp(v, 0, NVT - 1)]);
+        else if (k == 2u && sel_eng() == ENG_DRONE)
+            put_s(s, v ? "KEY" : "AUTO");
         else if (v) put_s(ui_time(s, 10u * pow2_q16(clamp(v, 0, 127) * 12)), "");   /* (V2: GLIDE) */
         else put_s(s, "OFF");
         return;
@@ -1401,6 +1591,10 @@ static void knob_text(uint32_t pg, uint32_t k, char *s)   /* knob k's value on p
         if (k == 0u || k == 2u) put_u(s, (uint32_t)v + (k ? 0u : 1u));
         else if (k == 1u) put_s(s, v >= SONG_END ? "END" : v == 0 ? "A" : v == 1 ? "B" : v == 2 ? "C" : "D");
         else put_s(s, SONG_MODE_NAME[clamp(v, 0, NSONGMODE - 1)]);
+        return;
+    case PG_SYS3:
+        if (k == 2u) tune_text(s, clamp(v, -24, 24));
+        else put_u(s, (uint32_t)clamp(v, 0, 1));
         return;
     case PG_LFO:
         if (k == 0u) lfo_rate_text(s, v, " ");
@@ -1581,7 +1775,7 @@ static void sv_do(void)                         /* OCT+ on a SAVE page: its ACTI
             snd_apply(r, sel);
             brw_at(sel, r);
             hd_say("LOADED");
-        } else if (playing || !voices_silent()) {   /* SAVE, CLEAR: the flash only while the sequencer stands and
+        } else if (playing || !classic_voices_silent()) {   /* SAVE, CLEAR: the flash only while the sequencer stands and
                                                  * no voice sounds (latched notes too) */
             sv_pend = sv_act, sv_pend_slot = i, sv_pend_cat = (uint32_t)clamp(sv_cat, 0, NCAT - 1), sv_pend_trk = sel;
             hd_say(playing ? "SAVES ON STOP" : "SAVES WHEN SILENT");
@@ -1774,7 +1968,7 @@ static void cc_apply(const uint8_t *L, uint32_t val)   /* a linked CC: its param
         int32_t mx = ENGINES[x % NENG]->max[k];
         v = ((int32_t)val * mx + 63) / 127;
         if (x % NENG == ENG_FM && k == 0u && v != trk[L[3] & 3u].p[ENG_FM][0]) fm_builtin(L[3] & 3u, v);   /* (PATCH) */
-        trk[L[3] & 3u].p[x % NENG][k] = v;
+        engine_params(L[3] & 3u, x % NENG)[k] = v;
         return;
     }
     sel = L[3] & 3u, cu = seq[sel].cursor, op = fm_op;   /* (the knob's track, step, section, operator, for this one
@@ -1933,7 +2127,7 @@ static void lock_turn(uint32_t k, int32_t d)
     int32_t mx = sel_engine()->max[k], v;
     if (!st->note) { hd_say("STEP OFF: NO LOCK"); return; }
     undo_take(UK_STEP | sel << 8 | (uint32_t)seq[sel].cursor, -1);
-    v = st->lmask >> k & 1u ? st->lv[k] : trk[sel].p[e][k];
+    v = st->lmask >> k & 1u ? st->lv[k] : engine_params(sel, e)[k];
     st->lv[k] = (uint8_t)clamp(v + enc_accel(ENC_KNOB1 + k, d, mx), 0, mx);
     st->lmask |= (uint8_t)(1u << k);
 }
@@ -2528,7 +2722,7 @@ static void app_main(void)
         }
 
         {                                       /* (a save waits for silence: since when) */
-            uint32_t w = !playing && (as_wait || sv_pend >= 0) && !voices_silent();
+            uint32_t w = !playing && (as_wait || sv_pend >= 0) && !classic_voices_silent();
             if (w && !sv_wait) sv_said = fm1_ms;
             sv_wait = w;
         }
@@ -2542,7 +2736,7 @@ static void app_main(void)
             static uint32_t shed_seen;
             if (shed_n != shed_seen) shed_seen = shed_n, hd_say("CPU FULL: NOTE DROPPED");
         }
-        if (!playing && sv_pend >= 0 && voices_silent()) {   /* SOUNDS: a SAVE or CLEAR that waited (the stop, silence) */
+        if (!playing && sv_pend >= 0 && classic_voices_silent()) {   /* SOUNDS: a SAVE or CLEAR that waited (the stop, silence) */
             sv_sound((uint32_t)sv_pend, sv_pend_slot, sv_pend_cat, sv_pend_trk);
             sv_pend = -1;
         }
@@ -2555,7 +2749,7 @@ static void app_main(void)
             fm1_ms >= as_next) {                /* (an editor's PUT open: its bytes are in st_img) */
             uint32_t g = st_gen;
             as_next = fm1_ms + 500u;
-            if (!voices_silent())               /* (no flash while a voice sounds: it waits, if there is anything) */
+            if (!classic_voices_silent())   /* (no flash while a voice sounds: it waits, if there is anything) */
                 as_wait = (uint32_t)autosave_due();
             else {
                 as_wait = 0;

@@ -211,7 +211,7 @@ static void stress_factory(void)                /* "factory" */
     e = r[3];
     lfo_pk(lf, sel);
     for (k = 0; k < 4u; k++)
-        if (trk[sel].p[e][k] != clamp(r[4 + k], 0, ENGINES[e]->max[k]) || trk[sel].env[k] != clamp(r[8 + k], 0, 127) ||
+        if (engine_params(sel, e)[k] != clamp(r[4 + k], 0, ENGINES[e]->max[k]) || trk[sel].env[k] != clamp(r[8 + k], 0, 127) ||
             lf[k] != r[14 + k])                 /* (rc9: a sound's values loaded within their knobs' ranges: the user
                                                  * sound this test writes has some past them) */
             stress_fail("factory: the track's sound not the one browsed to (knob)", k);
