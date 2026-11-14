@@ -6,6 +6,6 @@
   "editor": "https://grimmbient.github.io/grimm/editor.html",
   "cheat": "https://grimmbient.github.io/grimm/GRIMM-V2.0-manual.pdf",
   "image": "docs/card.png",
-  "sounds": "licensed: VocalSet – A Singing Voice Dataset by Wilkins et al. (Northwestern University, 2018), CC BY 4.0",
+  "sounds": "licensed: VocalSet – A Singing Voice Dataset by Wilkins et al. (Northwestern University, 2018), CC BY 4.0" ,
   "sounds": "CC0: GR!MM factory samples (CC0 1.0 Universal)"
 }
