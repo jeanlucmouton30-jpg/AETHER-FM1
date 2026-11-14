@@ -15,7 +15,7 @@ GR!MM stores it (firmware/src/samples.c). A slot holds 6.64 s: a longer file is 
 name is the file's (8 characters, A-Z 0-9 and a few signs) unless --name; the root note (the key that plays it at its
 own pitch) is C4 = 60, or a note in the file name ("drone_A2.wav"), or --root.
 
-It talks only to an FM-1 running GR!MM (it asks for the identity first: FM-1_966), and the FM-1 only writes while
+It talks only to an FM-1 running AETHER FM-1 or GR!MM (it checks the product identity first), and the FM-1 only writes while
 nothing sounds: unlatch every note and let DELAY's and SPACE's tails end first. Needs mido and python-rtmidi
 (py -m pip install mido python-rtmidi), as tools\\fm1_install.py.
 """
@@ -108,8 +108,8 @@ class Link:
         dev.link.close()
         if dev.id.loader:
             sys.exit(f"the FM-1 is in update mode ({ident}): finish the install first (tools\\fm1_install.py)")
-        if not re.fullmatch(r"FM-1_966|FM-1_95\d", ident):   # (GR!MM 1.x, 2.x; 95N: its builds before 1.0)
-            sys.exit(f"the FM-1 runs {ident}, not GR!MM (FM-1_966): install GR!MM first (tools\\fm1_install.py)")
+        if not re.fullmatch(r"FM-1_967|FM-1_966|FM-1_95\d", ident):   # AETHER FM-1, GR!MM 1.x/2.x, and legacy 95N
+            sys.exit(f"the FM-1 runs {ident}, not AETHER FM-1 / GR!MM: install compatible firmware first (tools\\fm1_install.py)")
         out = fi.pair_output(name, backend.output_names())
         if not out:
             sys.exit(f"no MIDI output beside {name}")

@@ -48,8 +48,7 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
-PRODUCT = "FM-1_966"                # GR!MM: 966, every release (1.x, 2.x) (FM-1_9NN: the installers resume its loader; the hub's
-                                    # other firmwares hold 950, 95x, 961, so not Dinghy's 9 + minor); Dinghy is 99N
+PRODUCT = "FM-1_967"                # AETHER FM-1 Hub identity; the update loader remains ota-FM-1_900.
 VERSION = None                      # APP_VER for release builds (else DEFAULT_VERSION)
 DEFAULT_VERSION = "1.0"
 DEFINES = []                        # --define: a test build's -D names for the app
@@ -287,7 +286,7 @@ def mmio_check():
 def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
-    ap.add_argument("--release", metavar="X.Y", help="release build: the version string X.Y (identity FM-1_966 as always)")
+    ap.add_argument("--release", metavar="X.Y", help="release build: the version string X.Y (AETHER identity FM-1_967)")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--define", action="append", default=[], metavar="NAME",
                     help="a test build: -DNAME for the app (e.g. GRIMM_TRS_TEST); give it its own --name")

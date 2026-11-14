@@ -80,7 +80,7 @@ static void out_usb16(const int32_t *o, int32_t *u, uint32_t n);   /* (grimm.c: 
 #define APP_NAME "DINGHY"
 #endif
 #ifndef FELUCCA_ID
-#define FELUCCA_ID "FM-1_966"                   /* package identity: GR!MM 1.x (tools/build.py) */
+#define FELUCCA_ID "FM-1_967"                   /* AETHER FM-1 package identity (tools/build.py) */
 #endif
 #ifndef APP_VER
 #define APP_VER "0.0"
@@ -556,7 +556,7 @@ void fm1_cstart(void)
     fm1_boot.p3_rst = (uint8_t)p3;
     if (boot_mode == BOOT_RECOVERY || recovery_key())
         recovery_main();                        /* OCT- at power-on: the USB rescue */
-    flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;
+    flash_ok = FL_FLASH_SUPPORTED(FL_FAR(fl_jedec_ram)());
     if (flash_ok)
         fl_plain_window_init();                 /* GR!MM: the flash above 0x93000 (the samples) reads plain through XIP */
     ota_boot_cleanup();

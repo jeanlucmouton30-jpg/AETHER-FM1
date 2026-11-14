@@ -35,6 +35,7 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 #define T4_CNT          REG32(0x10804u)            /* TIMER4, 24 MHz free-running */
 
 #define FL_XIP(off)     FM1_XIP(off)              /* fm1_xip.h */
+#define FL_FLASH_SUPPORTED(id) ((uint32_t)(id) == 0x856014u || (uint32_t)(id) == 0xB36014u)
 #define FL_DATA_LO      0x00097000u                /* Felucca main store */
 #define FL_DATA_HI      0x000E0000u
 #define FL_GLOB_LO      0x000FC000u                /* Felucca superblock / globals */

@@ -30,8 +30,6 @@
  * plus the ota.c hooks (frames, time, idle). */
 #define LDR_APP_LO 0x4000u
 #define LDR_APP_HI 0x93000u
-#define LDR_REC_LO 0x93000u                     /* update records live above the app ... */
-#define LDR_REC_HI 0xFC000u                     /* ... and below Felucca's globals */
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n);
 static int ldr_erase(uint32_t off);
@@ -88,18 +86,17 @@ static int ldr_chip_key(uint32_t *key)
 #define LDR_ENOFIN (-13)                        /* no "success" from the host */
 #define LDR_EFLASH (-14)                        /* another flash chip: nothing written, the records dropped */
 
-/* the update records (RAM, and flash: a 4K boundary - 256) go: the SPL boots the app */
+/* The OTA marker has one reserved flash location: OTA_RES in ota.c.
+ * Only its containing sector may be erased; the surrounding sectors hold user data. */
 static void ldr_records_drop(void)
 {
-    uint32_t s;
+    uint8_t r[80];
     ldr_record_clear();
-    for (s = LDR_REC_HI; s > LDR_REC_LO; s -= 0x1000u) {
-        uint8_t r[80];
-        if (ldr_fread(s - 0x100u, r, 80))
-            break;
-        if (ota_rd16(r + 6) == 0x5441u && ota_rd16(r) && ota_rd16(r) == ota_crc16(r + 2, 78, 0))
-            ldr_erase(s - 0x1000u);
-    }
+    if (!ldr_fread(OTA_RES, r, sizeof r) &&
+        ota_rd16(r + 6) == 0x5441u &&
+        ota_rd16(r) &&
+        ota_rd16(r) == ota_crc16(r + 2, 78, 0))
+        ldr_erase(OTA_RES & ~0xFFFu);
 }
 
 static int ldr_pass(void)
